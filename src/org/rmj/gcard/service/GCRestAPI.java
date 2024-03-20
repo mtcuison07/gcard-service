@@ -1,11 +1,8 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package org.rmj.gcard.service;
 
 import java.io.IOException;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -35,32 +32,41 @@ public class GCRestAPI {
     private static String GCARD_URL_REQUEST_CLUB_MEMBERS = "gcard/ms/request_club_member.php";
     private static String GCARD_URL_POINT_TRANSFER = "gcard/ms/point_transfer.php";
     private static String GCARD_URL_VERIFY_OFFLINE_ENTRY = "gcard/ms/verify_offline_points.php";
+    private static String GCARD_URL_UPLOAD_TDS = "gcard/ms/dgcard_upload_transaction.php";
+    
+    private static Map getHeaders(GRider foGRider){
+        Calendar calendar = Calendar.getInstance();
+        //Create the header section needed by the API
+        
+        Map<String, String> headers = new HashMap<String, String>();
+        headers.put("Accept", "application/json");
+        headers.put("Content-Type", "application/json");
+        headers.put("g-api-id", foGRider.getProductID());
+        headers.put("g-api-imei", MiscUtil.getPCName());
+        headers.put("g-api-key", SQLUtil.dateFormat(calendar.getTime(), "yyyyMMddHHmmss"));
+        headers.put("g-api-hash", org.apache.commons.codec.digest.DigestUtils.md5Hex((String)headers.get("g-api-imei") + (String)headers.get("g-api-key")));
+        headers.put("g-api-client", foGRider.getClientID());
+        headers.put("g-api-user", foGRider.getUserID());
+        headers.put("g-api-log", "");
+        headers.put("g-api-token", "");
+        
+        return headers;
+    }
+    
+    private static Map getHeaders(GRider foGRider, String fsMobileNo){
+        Map<String, String> headers = getHeaders(foGRider);
+        
+        if (!fsMobileNo.equals(""))
+            if (fsMobileNo.contains("+63"))
+                fsMobileNo = fsMobileNo.replace("+63", "0");
+        
+        headers.put("g-api-mobile", fsMobileNo);
+        
+        return headers;
+    }
     
     public static JSONObject ApproveApplication(GRider foGRider, UnitGCApplication foGCApp, String fsMobileNo){
         try {
-            Calendar calendar = Calendar.getInstance();
-            //Create the header section needed by the API
-            Map<String, String> headers =
-                    new HashMap<String, String>();
-            headers.put("Accept", "application/json");
-            headers.put("Content-Type", "application/json");
-            headers.put("g-api-id", foGRider.getProductID());
-            headers.put("g-api-imei", MiscUtil.getPCName());
-            headers.put("g-api-key", SQLUtil.dateFormat(calendar.getTime(), "yyyyMMddHHmmss"));
-            headers.put("g-api-hash", org.apache.commons.codec.digest.DigestUtils.md5Hex((String)headers.get("g-api-imei") + (String)headers.get("g-api-key")));
-            headers.put("g-api-client", foGRider.getClientID());
-            headers.put("g-api-user", foGRider.getUserID());
-            headers.put("g-api-log", "");
-            headers.put("g-api-token", "");
-            
-            //mac 2019.07.18
-            //  add client mobile number as header
-            if (!fsMobileNo.equals(""))
-                if (fsMobileNo.contains("+63"))
-                    fsMobileNo = fsMobileNo.replace("+63", "0");
-
-            headers.put("g-api-mobile", fsMobileNo);
-
             //Create the parameters needed by the API
             JSONObject param = new JSONObject();
             param.put("transnox", foGCApp.getTransNo());
@@ -86,8 +92,9 @@ public class GCRestAPI {
             JSONObject json_obj = null;
                         
             String lsAPI = CommonUtils.getConfiguration(foGRider, "WebSvr") + GCARD_URL_REQUEST_NEW;
-            String response = WebClient.httpPostJSon(lsAPI, param.toJSONString(), (HashMap<String, String>) headers);
-            System.out.println(response);
+            String response = WebClient.httpPostJSon(lsAPI, param.toJSONString(), (HashMap<String, String>) getHeaders(foGRider, fsMobileNo));
+            
+            
             if(response == null){
                 JSONObject err_detl = new JSONObject();
                 err_detl.put("message", System.getProperty("store.error.info"));
@@ -97,12 +104,100 @@ public class GCRestAPI {
                 return err_mstr;
             }
             json_obj = (JSONObject) oParser.parse(response);
-            //System.out.println(json_obj.toJSONString());
-            //System.out.println(response);
             return json_obj;
         } catch (IOException ex) {
             JSONObject err_detl = new JSONObject();
             err_detl.put("message", "IO Exception: " + ex.getMessage());
+            err_detl.put("code", "250");
+            JSONObject err_mstr = new JSONObject();
+            err_mstr.put("result", "ERROR");
+            err_mstr.put("error", err_detl);
+            return err_mstr;
+        } catch (ParseException ex) {
+            JSONObject err_detl = new JSONObject();
+            err_detl.put("message", "Parse Exception: " + ex.getMessage());
+            err_detl.put("code", ex.getErrorType());
+            JSONObject err_mstr = new JSONObject();
+            err_mstr.put("result", "ERROR");
+            err_mstr.put("error", err_detl);
+            return err_mstr;
+        }    
+    }
+    
+    public static JSONObject UploadTDS(GRider foGRider, String fsTransNox){
+        try {
+            String lsSQL = "SELECT" +
+                                "  sTransNox" +
+                                ", sGCardNox" +
+                                ", dTransact" +
+                                ", sBranchCd" +
+                                ", sSourceNo" +
+                                ", sSourceCd" +
+                                ", sOTPasswd" +
+                                ", nTranAmtx" +
+                                ", nPointsxx" +
+                                ", cSendStat" +
+                                ", cTranStat" +
+                                ", sEntryByx" +
+                                ", dEntryDte" +
+                            " FROM G_Card_Digital_Transaction" +
+                            " WHERE sTransNox = " + SQLUtil.toSQL(fsTransNox);
+            
+            ResultSet loRS = foGRider.executeQuery(lsSQL);
+            
+            if (!loRS.next()){
+                JSONObject err_detl = new JSONObject();
+                err_detl.put("message", "No record found. - " + fsTransNox);
+                JSONObject err_mstr = new JSONObject();
+                err_mstr.put("result", "ERROR");
+                err_mstr.put("error", err_detl);
+                return err_mstr;
+            }
+            
+            //Create the parameters needed by the API
+            JSONObject param = new JSONObject();
+            param.put("sTransNox", loRS.getString("sTransNox"));
+            param.put("sGCardNox", loRS.getString("sGCardNox"));
+            param.put("dTransact", loRS.getString("dTransact"));
+            param.put("sBranchCd", loRS.getString("sBranchCd"));
+            param.put("sSourceNo", loRS.getString("sSourceNo"));
+            param.put("sSourceCd", loRS.getString("sSourceCd"));
+            param.put("sOTPasswd", loRS.getString("sOTPasswd"));
+            param.put("nTranAmtx", loRS.getDouble("nTranAmtx"));
+            param.put("nPointsxx", loRS.getDouble("nPointsxx"));
+            param.put("cSendStat", loRS.getString("cSendStat"));
+            param.put("cTranStat", loRS.getString("cTranStat"));
+            param.put("sEntryByx", loRS.getString("sEntryByx"));
+            param.put("dEntryDte", loRS.getString("dEntryDte"));           
+            
+            JSONParser oParser = new JSONParser();
+            JSONObject json_obj = null;
+                        
+            String lsAPI = CommonUtils.getConfiguration(foGRider, "WebSvr") + GCARD_URL_UPLOAD_TDS;
+            String response = WebClient.httpPostJSon(lsAPI, param.toJSONString(), (HashMap<String, String>) getHeaders(foGRider));
+            
+            
+            if(response == null){
+                JSONObject err_detl = new JSONObject();
+                err_detl.put("message", System.getProperty("store.error.info"));
+                JSONObject err_mstr = new JSONObject();
+                err_mstr.put("result", "ERROR");
+                err_mstr.put("error", err_detl);
+                return err_mstr;
+            }
+            json_obj = (JSONObject) oParser.parse(response);
+            return json_obj;
+        } catch (IOException ex) {
+            JSONObject err_detl = new JSONObject();
+            err_detl.put("message", "IO Exception: " + ex.getMessage());
+            err_detl.put("code", "250");
+            JSONObject err_mstr = new JSONObject();
+            err_mstr.put("result", "ERROR");
+            err_mstr.put("error", err_detl);
+            return err_mstr;
+        } catch (SQLException ex) {
+            JSONObject err_detl = new JSONObject();
+            err_detl.put("message", "SQL Exception: " + ex.getMessage());
             err_detl.put("code", "250");
             JSONObject err_mstr = new JSONObject();
             err_mstr.put("result", "ERROR");
