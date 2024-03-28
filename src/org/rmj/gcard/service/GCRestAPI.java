@@ -33,6 +33,7 @@ public class GCRestAPI {
     private static String GCARD_URL_POINT_TRANSFER = "gcard/ms/point_transfer.php";
     private static String GCARD_URL_VERIFY_OFFLINE_ENTRY = "gcard/ms/verify_offline_points.php";
     private static String GCARD_URL_UPLOAD_TDS = "gcard/ms/dgcard_upload_transaction.php";
+    private static String GCARD_URL_POINTS_UPDATE = "gcard/ms/dgcard_upload_transaction.php";
     
     private static Map getHeaders(GRider foGRider){
         Calendar calendar = Calendar.getInstance();
