@@ -33,7 +33,7 @@ public class GCRestAPI {
     private static String GCARD_URL_POINT_TRANSFER = "gcard/ms/point_transfer.php";
     private static String GCARD_URL_VERIFY_OFFLINE_ENTRY = "gcard/ms/verify_offline_points.php";
     private static String GCARD_URL_UPLOAD_TDS = "gcard/ms/dgcard_upload_transaction.php";
-    private static String GCARD_URL_POINTS_UPDATE = "gcard/ms/dgcard_upload_transaction.php";
+    private static String GCARD_URL_REQUEST_POINTS_UPDATE = "gcard/ms/dgcard_points_request.php";
     
     private static Map getHeaders(GRider foGRider){
         Calendar calendar = Calendar.getInstance();
@@ -215,6 +215,57 @@ public class GCRestAPI {
         }    
     }
     
+    //request update point
+    public static JSONObject RequestPointsUpdate(GRider foGRider, String lsTDSValue){
+        try {            
+            lsTDSValue = MySQLAESCrypt.Decrypt(lsTDSValue, "20190625");
+            
+            String lasSplit[] = lsTDSValue.split("»");
+            
+            //Create the parameters needed by the API
+            JSONObject param = new JSONObject();
+            param.put("sGCardNox", lasSplit[15]);
+            param.put("dTransact", lasSplit[4]);
+            param.put("sBranchCD", lasSplit[1]);
+            param.put("sReferNox", lasSplit[2]);
+            param.put("sSourceCd", lasSplit[3]);
+            param.put("sOTPasswd", lasSplit[7]);
+            
+            JSONParser oParser = new JSONParser();
+            JSONObject json_obj = null;
+                        
+            String lsAPI = CommonUtils.getConfiguration(foGRider, "WebSvr") + GCARD_URL_REQUEST_POINTS_UPDATE;
+            String response = WebClient.httpPostJSon(lsAPI, param.toJSONString(), (HashMap<String, String>) getHeaders(foGRider));
+            
+            if(response == null){
+                JSONObject err_detl = new JSONObject();
+                err_detl.put("message", System.getProperty("store.error.info"));
+                JSONObject err_mstr = new JSONObject();
+                err_mstr.put("result", "ERROR");
+                err_mstr.put("error", err_detl);
+                return err_mstr;
+            }
+            json_obj = (JSONObject) oParser.parse(response);
+            return json_obj;
+        } catch (IOException ex) {
+            JSONObject err_detl = new JSONObject();
+            err_detl.put("message", "IO Exception: " + ex.getMessage());
+            err_detl.put("code", "250");
+            JSONObject err_mstr = new JSONObject();
+            err_mstr.put("result", "ERROR");
+            err_mstr.put("error", err_detl);
+            return err_mstr;
+        } catch (ParseException ex) {
+            JSONObject err_detl = new JSONObject();
+            err_detl.put("message", "Parse Exception: " + ex.getMessage());
+            err_detl.put("code", ex.getErrorType());
+            JSONObject err_mstr = new JSONObject();
+            err_mstr.put("result", "ERROR");
+            err_mstr.put("error", err_detl);
+            return err_mstr;
+        }    
+    }
+            
     //Update points of a particular GCard... 
     public static JSONObject UpdatePoint(GRider foGRider, String fsCardNmbr, String fsDescript, String fsReferNox, double fnPointsxx){
         try {
